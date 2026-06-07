@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KYC Risk Analysis & Data Verification Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <!--
+    Tabler Icons — free, open-source SVG icon set used throughout the UI.
+    We load the webfont version so icons render as text (no extra HTTP requests per icon).
+  -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+  <!--
+    Chart.js — lightweight charting library (no framework required).
+    Used to render the donut chart, bar chart, and line chart in the Charts tab.
+    Loaded from CDN; in production you would bundle this with your build tool.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- =====================================================================
+       SITE HEADER
+       Always visible at the top of the page (position: sticky).
+       Shows the product name, live system-status badge, and current time.
+       The live-date span is updated every 30 seconds by app.js.
+  ====================================================================== -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <i class="ti ti-shield-check" aria-hidden="true"></i>
+        <span>KYC Compliance Suite</span>
+      </div>
+      <nav class="header-nav">
+        <span class="badge badge-green"><i class="ti ti-circle-check"></i> System Online</span>
+        <span class="header-date" id="live-date"></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <!-- =================================================================
+         PAGE HEADER
+         Brief description of what the dashboard covers.
+         KYC (Know Your Customer) is a legal obligation for financial
+         institutions to verify client identities and assess money-laundering
+         risk before onboarding or processing transactions.
+    ================================================================== -->
+    <div class="page-header">
+      <h1>KYC Risk Analysis &amp; Data Verification</h1>
+      <p>Automated compliance screening &middot; Data Cleaning &amp; Matching Engine &middot; AML / PEP / Sanctions</p>
+    </div>
+
+    <!-- =================================================================
+         TOP-LEVEL KPI CARDS
+         Four headline numbers rendered dynamically from DATA by app.js.
+         - Total screened: throughput metric
+         - High-risk flagged: cases requiring Enhanced Due Diligence (EDD)
+         - Data match rate: percentage matched against authoritative sources
+         - Pending review: analyst backlog
+    ================================================================== -->
+    <div class="metrics-grid" id="kpi-grid">
+      <!-- Populated dynamically by renderKPIs() in app.js -->
+    </div>
+
+    <!-- TAB NAVIGATION — keyboard-accessible via arrow keys -->
+    <!--
+      ACCESSIBILITY: role="tablist" + role="tab" + aria-selected allows
+      screen readers to announce tab state. Keyboard arrow-key navigation
+      is handled in app.js (switchTabByIndex).
+    -->
+    <div class="tab-bar" role="tablist" id="tab-bar">
+      <button class="tab-btn active" role="tab" aria-selected="true"
+              data-tab="clients" tabindex="0"
+              onclick="switchTab('clients', this)">
+        <i class="ti ti-users" aria-hidden="true"></i> Client Risk Table
+      </button>
+      <button class="tab-btn" role="tab" aria-selected="false"
+              data-tab="datacleaning" tabindex="-1"
+              onclick="switchTab('datacleaning', this)">
+        <i class="ti ti-filter" aria-hidden="true"></i> Data Cleaning Pipeline
+      </button>
+      <button class="tab-btn" role="tab" aria-selected="false"
+              data-tab="matching" tabindex="-1"
+              onclick="switchTab('matching', this)">
+        <i class="ti ti-git-merge" aria-hidden="true"></i> Identity Matching
+      </button>
+      <button class="tab-btn" role="tab" aria-selected="false"
+              data-tab="flags" tabindex="-1"
+              onclick="switchTab('flags', this)">
+        <i class="ti ti-alert-triangle" aria-hidden="true"></i> AML Flags &amp; Alerts
+      </button>
+      <button class="tab-btn" role="tab" aria-selected="false"
+              data-tab="charts" tabindex="-1"
+              onclick="switchTab('charts', this)">
+        <i class="ti ti-chart-bar" aria-hidden="true"></i> Analytics &amp; Charts
+      </button>
+    </div>
+
+    <!-- =================================================================
+         TAB 1 — CLIENT RISK TABLE
+         Lists all screened clients with their computed risk scores and flags.
+         Supports filtering by name/country, risk level, and status.
+         Includes CSV export for compliance reporting.
+    ================================================================== -->
+    <div id="tab-clients" class="tab-panel active" role="tabpanel">
+
+      <!-- Search & filter toolbar -->
+      <div class="table-toolbar">
+        <div class="toolbar-search">
+          <i class="ti ti-search toolbar-search-icon" aria-hidden="true"></i>
+          <input
+            type="search"
+            id="client-search"
+            class="search-input"
+            placeholder="Search by name or country…"
+            aria-label="Search clients"
+            oninput="filterClients()"
+          />
+        </div>
+        <div class="toolbar-filters">
+          <select id="filter-risk" class="filter-select" aria-label="Filter by risk level" onchange="filterClients()">
+            <option value="">All risk levels</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <select id="filter-status" class="filter-select" aria-label="Filter by status" onchange="filterClients()">
+            <option value="">All statuses</option>
+            <option value="Approved">Approved</option>
+            <option value="Review">Review</option>
+            <option value="Blocked">Blocked</option>
+          </select>
+        </div>
+        <div class="toolbar-actions">
+          <span id="filter-count" class="filter-count"></span>
+          <button class="btn-export" onclick="exportCSV()" title="Export current view to CSV">
+            <i class="ti ti-download" aria-hidden="true"></i> Export CSV
+          </button>
+        </div>
+      </div>
+
+      <div class="card full-card">
+        <div class="card-title"><i class="ti ti-users" aria-hidden="true"></i> Client risk overview</div>
+        <div class="table-wrap">
+          <table class="client-table" aria-label="Client risk overview">
+            <thead>
+              <tr>
+                <th>Client ID</th>
+                <th>Name</th>
+                <th>Country</th>
+                <!-- Risk score 0–100: computed by the risk-scoring engine -->
+                <th>Risk score</th>
+                <th>Risk level</th>
+                <!-- PEP = Politically Exposed Person: require Enhanced Due Diligence -->
+                <th>PEP</th>
+                <!-- Sanctions: direct hit on OFAC SDN, EU, UN, or UK consolidated lists -->
+                <th>Sanctions</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="client-tbody"></tbody>
+          </table>
+          <!-- Shown when the active filter matches no records -->
+          <div id="no-results" class="no-results" hidden>
+            <i class="ti ti-search-off" aria-hidden="true"></i>
+            <p>No clients match the current filters.</p>
+          </div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-chart-pie" aria-hidden="true"></i> Risk distribution</div>
+          <div id="risk-dist"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-map-pin" aria-hidden="true"></i> Top high-risk jurisdictions</div>
+          <!-- Jurisdictions ranked by FATF grey/black list status and Basel AML Index -->
+          <div id="jurisdiction-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================
+         TAB 2 — DATA CLEANING PIPELINE
+         Before any KYC check can run, raw client data must be standardised.
+         Messy, inconsistent data causes false negatives in sanctions screening.
+         This tab shows each stage of the cleaning pipeline and its quality score.
+    ================================================================== -->
+    <div id="tab-datacleaning" class="tab-panel" role="tabpanel">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-filter" aria-hidden="true"></i> Pipeline stages</div>
+          <!-- Steps are rendered by renderPipelineSteps() in app.js -->
+          <ol class="step-list" id="pipeline-steps"></ol>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-activity" aria-hidden="true"></i> Cleaning quality metrics</div>
+          <!-- Each metric shows the percentage of records that passed that
+               cleaning stage without requiring manual intervention -->
+          <div id="quality-metrics"></div>
+          <div class="section-divider">common data issues found</div>
+          <div id="data-issues"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================
+         TAB 3 — IDENTITY MATCHING
+         After cleaning, client data is matched against authoritative sources.
+         Different matching strategies are combined into a single confidence
+         score using a weighted ensemble approach.
+         The interactive sliders let a compliance officer tune the thresholds
+         to balance operational workload vs. false-negative risk.
+    ================================================================== -->
+    <div id="tab-matching" class="tab-panel" role="tabpanel">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-git-merge" aria-hidden="true"></i> Matching methods</div>
+          <!-- Methods are rendered by renderMatchMethods() in app.js.
+               Each method shows a status icon: ✓ live, ⚠ issues, ✗ not deployed -->
+          <div id="match-methods"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-adjustments" aria-hidden="true"></i> Match confidence thresholds</div>
+          <p class="muted-text">Adjust thresholds to see how records are routed to each outcome.</p>
+          <div class="slider-group">
+            <label for="approve-slider" class="slider-label">
+              Auto-approve threshold: <strong id="approve-val">90</strong>%
+            </label>
+            <!-- Records with match confidence ≥ this value pass automatically.
+                 Setting this too low risks onboarding sanctioned individuals. -->
+            <input type="range" min="70" max="99" value="90" id="approve-slider" oninput="updateThreshold()" />
+          </div>
+          <div class="slider-group">
+            <label for="review-slider" class="slider-label">
+              Manual review threshold: <strong id="review-val">60</strong>%
+            </label>
+            <!-- Records below this value are auto-rejected.
+                 Records between the two thresholds go to human review. -->
+            <input type="range" min="30" max="89" value="60" id="review-slider" oninput="updateThreshold()" />
+          </div>
+          <p id="threshold-result" class="muted-text threshold-note"></p>
+          <div class="section-divider">routing outcome</div>
+          <div class="flag-item">
+            <div class="flag-dot dot-green"></div>
+            <div class="flag-text">Auto-approved</div>
+            <div class="flag-cat" id="auto-count">—</div>
+          </div>
+          <div class="flag-item">
+            <div class="flag-dot dot-amber"></div>
+            <div class="flag-text">Manual review required</div>
+            <div class="flag-cat" id="review-count">—</div>
+          </div>
+          <div class="flag-item">
+            <div class="flag-dot dot-red"></div>
+            <div class="flag-text">Auto-rejected</div>
+            <div class="flag-cat" id="reject-count">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================
+         TAB 4 — AML FLAGS & ALERTS
+         Anti-Money Laundering (AML) alerts are raised when the system
+         detects patterns associated with financial crime:
+         - Structuring (breaking large amounts into smaller transactions)
+         - Layering (moving funds through multiple entities to obscure origin)
+         - Integration (reintroducing laundered funds into the economy)
+    ================================================================== -->
+    <div id="tab-flags" class="tab-panel" role="tabpanel">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-alert-triangle" aria-hidden="true"></i> Active AML alerts</div>
+          <div id="flag-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-list-check" aria-hidden="true"></i> Risk factor breakdown</div>
+          <!-- Each bar shows the prevalence of that risk factor across ALL
+               high-risk clients — used to identify systemic patterns -->
+          <div id="risk-factors"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================
+         TAB 5 — ANALYTICS & CHARTS  (portfolio showcase tab)
+         Three Chart.js visualisations:
+         1. Donut chart  — risk-level breakdown (Low / Medium / High)
+         2. Bar chart    — monthly onboarding volume vs. flagged cases
+         3. Line chart   — data match rate trend over 6 months
+         4. Horizontal bar — risk factor prevalence
+         All charts respect prefers-color-scheme (light / dark mode).
+    ================================================================== -->
+    <div id="tab-charts" class="tab-panel" role="tabpanel">
+
+      <!-- Row 1: donut + bar side by side -->
+      <div class="two-col" style="margin-bottom:1rem">
+
+        <div class="card">
+          <div class="card-title">
+            <i class="ti ti-chart-donut" aria-hidden="true"></i>
+            Risk level distribution
+          </div>
+          <p class="chart-caption">
+            Proportion of screened clients per risk tier. High-risk clients
+            require Enhanced Due Diligence (EDD); medium-risk trigger
+            Simplified Due Diligence (SDD); low-risk proceed with Standard DD.
+          </p>
+          <div class="chart-wrap chart-wrap--sm">
+            <canvas id="chart-donut" aria-label="Risk level distribution donut chart" role="img"></canvas>
+          </div>
+          <div id="donut-legend" class="chart-legend"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <i class="ti ti-chart-bar" aria-hidden="true"></i>
+            Monthly onboarding vs. flagged cases
+          </div>
+          <p class="chart-caption">
+            Grouped bar chart showing total onboarding volume (blue) against
+            the number of cases flagged for review or blocked (red) each month.
+            A rising flag rate may indicate a deteriorating client pipeline or
+            improved detection accuracy.
+          </p>
+          <div class="chart-wrap">
+            <canvas id="chart-bar" aria-label="Monthly onboarding vs flagged cases bar chart" role="img"></canvas>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Row 2: line chart full width -->
+      <div class="card full-card">
+        <div class="card-title">
+          <i class="ti ti-chart-line" aria-hidden="true"></i>
+          Data match rate trend — last 6 months
+        </div>
+        <p class="chart-caption">
+          Line chart tracking the percentage of client records successfully
+          matched against authoritative third-party sources each month.
+          Target threshold: ≥ 90% (green dashed line).
+        </p>
+        <div class="chart-wrap">
+          <canvas id="chart-line" aria-label="Data match rate trend line chart" role="img"></canvas>
+        </div>
+      </div>
+
+      <!-- Row 3: horizontal bar — risk factor prevalence -->
+      <div class="card full-card">
+        <div class="card-title">
+          <i class="ti ti-chart-bar" aria-hidden="true"></i>
+          Risk factor prevalence across high-risk clients
+        </div>
+        <p class="chart-caption">
+          Horizontal bar chart showing how often each risk factor appears
+          among the 312 high-risk clients. Percentages are not mutually exclusive —
+          one client can carry multiple risk factors.
+        </p>
+        <div class="chart-wrap">
+          <canvas id="chart-hbar" aria-label="Risk factor prevalence horizontal bar chart" role="img"></canvas>
+        </div>
+      </div>
+
+    </div><!-- /tab-charts -->
+
+  </main>
+
+  <footer class="site-footer">
+    <p>KYC Risk Analysis Dashboard &mdash; Portfolio Project &mdash; Vanilla HTML · CSS · JavaScript · Chart.js</p>
+    <p style="margin-top:6px">
+      Concepts: FATF Recommendations · EU 5AMLD · OFAC SDN · FinCEN CDD Rule &mdash; All data is entirely fictional.
+    </p>
+  </footer>
+
+  <script src="data.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

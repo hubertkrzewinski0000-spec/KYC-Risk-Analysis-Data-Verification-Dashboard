@@ -1,0 +1,15 @@
+{
+  "name": "kyc-risk-dashboard",
+  "version": "1.0.0",
+  "description": "KYC Risk Analysis & Data Verification Dashboard — portfolio project",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/risk.test.js",
+    "test:watch": "node --test --watch tests/risk.test.js",
+    "serve": "npx serve ."
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {}
+}
